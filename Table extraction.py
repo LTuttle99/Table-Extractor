@@ -66,8 +66,14 @@ def get_initial_dataframe(_workbook, sheet_name, start_row, end_row, start_col, 
     df_result = pd.DataFrame(adjusted_rows, columns=headers)
     df_result = df_result.dropna(how="all")
 
+    # Ensure 'Order' column exists for manual reordering
     if 'Order' not in df_result.columns:
         df_result.insert(0, 'Order', range(1, len(df_result) + 1))
+    else:
+        # If 'Order' exists, ensure it's numeric and reset if needed
+        df_result['Order'] = pd.to_numeric(df_result['Order'], errors='coerce').fillna(0).astype(int)
+        df_result = df_result.sort_values(by='Order').reset_index(drop=True)
+        df_result['Order'] = range(1, len(df_result) + 1) # Re-index for consistent order
 
     return df_result
 
@@ -148,9 +154,6 @@ if uploaded_file is not None:
             st.subheader("✏️ Review and Edit Table (Directly in Table)")
             st.info("You can directly edit cells in the table. To reorder rows, edit the numbers in the 'Order' column. To delete a row, click the 'X' button on the right of the row.")
 
-            # Ensure 'Order' column is numeric for proper sorting and data editor
-            st.session_state.current_df_manual['Order'] = pd.to_numeric(st.session_state.current_df_manual['Order'], errors='coerce').fillna(0).astype(int)
-
             edited_df_manual = st.data_editor(
                 st.session_state.current_df_manual,
                 num_rows="dynamic", # Allows adding/deleting rows directly in the editor
@@ -179,16 +182,69 @@ if uploaded_file is not None:
                 if 'Order' in st.session_state.current_df_manual.columns:
                     temp_df = st.session_state.current_df_manual.copy()
                     temp_df['Order_temp_sort'] = temp_df['Order']
+                    # Handle duplicate order numbers by making them unique for sorting purposes
                     if temp_df['Order_temp_sort'].duplicated().any():
                         temp_df['Order_temp_sort'] = temp_df['Order'].astype(str) + '.' + temp_df.groupby('Order_temp_sort').cumcount().astype(str)
-                        temp_df['Order_temp_sort'] = pd.to_numeric(temp_df['Order_temp_sort'], errors='coerce')
+                        temp_df['Order_temp_sort'] = pd.to_numeric(temp_df['Order_temp_sort'], errors='coerce') # Convert back to numeric for sorting
+                    
                     st.session_state.current_df_manual = temp_df.sort_values(by='Order_temp_sort', ascending=True).drop(columns=['Order_temp_sort']).reset_index(drop=True)
+                    # Re-assign sequential Order numbers after sorting
+                    st.session_state.current_df_manual['Order'] = range(1, len(st.session_state.current_df_manual) + 1)
                     st.success("Rows reordered successfully!")
                     st.rerun()
                 else:
                     st.warning("No 'Order' column found to reorder rows.")
             
-            # Undo functionality (optional, but good for a manual editor)
+            # --- Manual Row Combination Feature ---
+            st.markdown("---")
+            st.subheader("🔗 Combine Selected Rows Manually")
+            st.info("Select rows from the table above using the checkboxes on the left, then click 'Combine Selected Rows'. Numeric columns will be summed, text columns joined by ' / '.")
+
+            # Get selected row indices from the data editor
+            # The 'selection' key from data_editor gives selected row indices
+            selected_rows_indices = edited_df_manual.index[edited_df_manual.index.isin(st.session_state.main_data_editor_manual['selected_rows'])].tolist()
+
+            if len(selected_rows_indices) >= 2:
+                new_row_name = st.text_input("Enter a name for the combined row (e.g., 'Combined Item')", "Combined Row", key="combined_row_name_manual")
+                if st.button("Combine Selected Rows", key="combine_selected_manual"):
+                    st.session_state.history_manual.append(st.session_state.current_df_manual.copy()) # Save current state
+
+                    combined_row_data = {}
+                    selected_df_for_combine = st.session_state.current_df_manual.loc[selected_rows_indices]
+
+                    for col_idx, col in enumerate(st.session_state.current_df_manual.columns):
+                        if col == 'Order': # Special handling for 'Order' column
+                            combined_row_data[col] = max(st.session_state.current_df_manual['Order']) + 1 # Assign a new high order number
+                        elif pd.api.types.is_numeric_dtype(st.session_state.current_df_manual[col]):
+                            combined_row_data[col] = selected_df_for_combine[col].sum()
+                        else:
+                            # Join non-numeric values, handling NaNs
+                            joined_value = " / ".join(selected_df_for_combine[col].dropna().astype(str).tolist())
+                            combined_row_data[col] = joined_value
+                    
+                    # Set the new name for the first non-order column, or 'Order' if it's the only one
+                    if 'Order' in combined_row_data and len(combined_row_data) > 1:
+                        first_non_order_col = next((c for c in st.session_state.current_df_manual.columns if c != 'Order'), None)
+                        if first_non_order_col:
+                            combined_row_data[first_non_order_col] = new_row_name
+                    elif len(combined_row_data) > 0: # If only one column, or 'Order' is the first
+                         combined_row_data[st.session_state.current_df_manual.columns[0]] = new_row_name
+
+
+                    combined_df_new = pd.DataFrame([combined_row_data], columns=st.session_state.current_df_manual.columns)
+                    
+                    remaining_df = st.session_state.current_df_manual.drop(index=selected_rows_indices).reset_index(drop=True)
+                    st.session_state.current_df_manual = pd.concat([remaining_df, combined_df_new], ignore_index=True)
+                    
+                    st.success(f"Selected rows combined into '{new_row_name}'.")
+                    st.rerun()
+            elif len(selected_rows_indices) > 0 and len(selected_rows_indices) < 2:
+                st.warning("Please select at least two rows to combine.")
+            else:
+                st.info("No rows selected for combination.")
+
+            # --- Undo functionality ---
+            st.markdown("---")
             if len(st.session_state.history_manual) > 0:
                 if st.button("Undo Last Action", key="undo_manual"):
                     st.session_state.current_df_manual = st.session_state.history_manual.pop()
