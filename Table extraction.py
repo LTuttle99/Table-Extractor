@@ -155,7 +155,6 @@ if uploaded_file is not None:
             st.info("You can directly edit cells in the table. To reorder rows, edit the numbers in the 'Order' column. To delete a row, click the 'X' button on the right of the row.")
 
             # Ensure 'Order' column is numeric for proper sorting and data editor
-            # This is already handled in get_initial_dataframe, but added here too for robustness
             st.session_state.current_df_manual['Order'] = pd.to_numeric(st.session_state.current_df_manual['Order'], errors='coerce').fillna(0).astype(int)
 
             edited_df_manual = st.data_editor(
@@ -207,53 +206,55 @@ if uploaded_file is not None:
             # Get selected row indices from the data editor
             # Safely get 'selected_rows' to prevent KeyError if no rows are selected initially
             selected_rows_indices = st.session_state.main_data_editor_manual.get('selected_rows', [])
+            
+            # --- Always show the combine button, but disable it if not enough rows are selected ---
+            new_row_name = st.text_input("Enter a name for the combined row (e.g., 'Combined Item')", "Combined Row", key="combined_row_name_manual")
+            
+            combine_button_disabled = len(selected_rows_indices) < 2
+            
+            if st.button("Combine Selected Rows", key="combine_selected_manual", disabled=combine_button_disabled):
+                st.session_state.history_manual.append(st.session_state.current_df_manual.copy()) # Save current state
 
-            if len(selected_rows_indices) >= 2:
-                new_row_name = st.text_input("Enter a name for the combined row (e.g., 'Combined Item')", "Combined Row", key="combined_row_name_manual")
-                if st.button("Combine Selected Rows", key="combine_selected_manual"):
-                    st.session_state.history_manual.append(st.session_state.current_df_manual.copy()) # Save current state
+                combined_row_data = {}
+                # Use .loc with the directly obtained indices from selected_rows_indices
+                selected_df_for_combine = st.session_state.current_df_manual.loc[selected_rows_indices]
 
-                    combined_row_data = {}
-                    # Use .loc with the directly obtained indices from selected_rows_indices
-                    selected_df_for_combine = st.session_state.current_df_manual.loc[selected_rows_indices]
-
-                    for col_idx, col in enumerate(st.session_state.current_df_manual.columns):
-                        if col == 'Order': # Special handling for 'Order' column
-                            # Assign a new high order number, ensuring it's unique
-                            combined_row_data[col] = st.session_state.current_df_manual['Order'].max() + 1 if not st.session_state.current_df_manual.empty else 1
-                        elif pd.api.types.is_numeric_dtype(st.session_state.current_df_manual[col]):
-                            combined_row_data[col] = selected_df_for_combine[col].sum()
-                        else:
-                            # Join non-numeric values, handling NaNs
-                            joined_value = " / ".join(selected_df_for_combine[col].dropna().astype(str).tolist())
-                            combined_row_data[col] = joined_value
-                    
-                    # Set the new name for the first non-order column, or the first column if 'Order' isn't present
-                    # Added robust checks for empty dataframe or column existence
-                    if not st.session_state.current_df_manual.empty and not st.session_state.current_df_manual.columns.empty:
-                        if 'Order' in st.session_state.current_df_manual.columns and len(st.session_state.current_df_manual.columns) > 1:
-                            first_non_order_col = next((c for c in st.session_state.current_df_manual.columns if c != 'Order'), None)
-                            if first_non_order_col:
-                                combined_row_data[first_non_order_col] = new_row_name
-                        else: # If 'Order' is the only column, or it's not present and we need to assign a name
-                            combined_row_data[st.session_state.current_df_manual.columns[0]] = new_row_name
+                for col_idx, col in enumerate(st.session_state.current_df_manual.columns):
+                    if col == 'Order': # Special handling for 'Order' column
+                        # Assign a new high order number, ensuring it's unique
+                        combined_row_data[col] = st.session_state.current_df_manual['Order'].max() + 1 if not st.session_state.current_df_manual.empty else 1
+                    elif pd.api.types.is_numeric_dtype(st.session_state.current_df_manual[col]):
+                        combined_row_data[col] = selected_df_for_combine[col].sum()
+                    else:
+                        # Join non-numeric values, handling NaNs
+                        joined_value = " / ".join(selected_df_for_combine[col].dropna().astype(str).tolist())
+                        combined_row_data[col] = joined_value
+                
+                # Set the new name for the first non-order column, or the first column if 'Order' isn't present
+                if not st.session_state.current_df_manual.empty and not st.session_state.current_df_manual.columns.empty:
+                    if 'Order' in st.session_state.current_df_manual.columns and len(st.session_state.current_df_manual.columns) > 1:
+                        first_non_order_col = next((c for c in st.session_state.current_df_manual.columns if c != 'Order'), None)
+                        if first_non_order_col:
+                            combined_row_data[first_non_order_col] = new_row_name
+                    else: # If 'Order' is the only column, or it's not present and we need to assign a name
+                        combined_row_data[st.session_state.current_df_manual.columns[0]] = new_row_name
 
 
-                    combined_df_new = pd.DataFrame([combined_row_data], columns=st.session_state.current_df_manual.columns)
-                    
-                    remaining_df = st.session_state.current_df_manual.drop(index=selected_rows_indices).reset_index(drop=True)
-                    st.session_state.current_df_manual = pd.concat([remaining_df, combined_df_new], ignore_index=True)
-                    
-                    # After combining, re-assign 'Order' numbers to ensure they are sequential
-                    if 'Order' in st.session_state.current_df_manual.columns:
-                        st.session_state.current_df_manual['Order'] = range(1, len(st.session_state.current_df_manual) + 1)
+                combined_df_new = pd.DataFrame([combined_row_data], columns=st.session_state.current_df_manual.columns)
+                
+                remaining_df = st.session_state.current_df_manual.drop(index=selected_rows_indices).reset_index(drop=True)
+                st.session_state.current_df_manual = pd.concat([remaining_df, combined_df_new], ignore_index=True)
+                
+                # After combining, re-assign 'Order' numbers to ensure they are sequential
+                if 'Order' in st.session_state.current_df_manual.columns:
+                    st.session_state.current_df_manual['Order'] = range(1, len(st.session_state.current_df_manual) + 1)
 
-                    st.success(f"Selected rows combined into '{new_row_name}'.")
-                    st.rerun()
-            elif len(selected_rows_indices) > 0 and len(selected_rows_indices) < 2:
-                st.warning("Please select at least two rows to combine.")
-            else:
-                st.info("No rows selected for combination.")
+                st.success(f"Selected rows combined into '{new_row_name}'.")
+                st.rerun()
+            # Provide feedback if the button is disabled
+            if combine_button_disabled:
+                st.warning("Please select at least two rows to enable the 'Combine Selected Rows' button.")
+
 
             # --- Undo functionality ---
             st.markdown("---")
