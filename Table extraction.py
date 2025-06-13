@@ -201,10 +201,41 @@ if uploaded_file is not None:
             # --- Manual Row Combination Feature ---
             st.markdown("---")
             st.subheader("🔗 Combine Selected Rows Manually")
-            st.info("Select rows from the table above using the checkboxes on the left, then click 'Combine Selected Rows'. Numeric columns will be summed, text columns joined by ' / '.")
+            st.info("Select rows from the dropdown below to combine them. Numeric columns will be summed, text columns joined by ' / '.")
 
-            # Get selected row indices directly from the data editor's session state
-            selected_rows_indices = st.session_state.main_data_editor_manual.get('selected_rows', [])
+            # --- USING st.multiselect for explicit row selection for combination ---
+            # Create a display format for the multiselect to show both index and a meaningful column value
+            # Assuming the first non-Order column is a good identifier, otherwise use full row data
+            if not st.session_state.current_df_manual.empty:
+                display_options = {}
+                for i, row in st.session_state.current_df_manual.iterrows():
+                    # Try to use a meaningful column, otherwise fallback to "Unnamed"
+                    # Exclude 'Order' column from being the identifier
+                    identifier_cols = [col for col in st.session_state.current_df_manual.columns if col != 'Order']
+                    
+                    display_value = f"Row {i}" # Default fallback
+                    if identifier_cols:
+                        # Take the first non-empty, non-Order column for display
+                        for col_name in identifier_cols:
+                            if pd.notna(row[col_name]) and str(row[col_name]).strip() != "":
+                                display_value = str(row[col_name])
+                                break
+                    display_options[i] = f"Index {i}: {display_value}"
+                
+                # Get the keys (actual indices) from the display_options
+                options_to_select = list(display_options.keys())
+                format_func_display = lambda x: display_options[x] # Function to display options nicely
+
+                selected_rows_indices = st.multiselect(
+                    "Select rows to combine:",
+                    options=options_to_select,
+                    format_func=format_func_display,
+                    key="combine_rows_multiselect_manual"
+                )
+            else:
+                selected_rows_indices = []
+                st.warning("No rows available to select for combination.")
+
 
             new_row_name = st.text_input("Enter a name for the combined row (e.g., 'Combined Item')", "Combined Row", key="combined_row_name_manual")
             
@@ -248,10 +279,7 @@ if uploaded_file is not None:
                         st.session_state.current_df_manual['Order'] = range(1, len(st.session_state.current_df_manual) + 1)
 
                     st.success(f"Selected rows combined into '{new_row_name}'.")
-                    # Optionally, clear the data_editor's internal selection state as well
-                    if 'main_data_editor_manual' in st.session_state:
-                        st.session_state.main_data_editor_manual['selected_rows'] = []
-                    st.rerun()
+                    st.rerun() # Rerun to update the display and multiselect options
                 else:
                     st.warning("Please select at least two rows to combine.")
 
