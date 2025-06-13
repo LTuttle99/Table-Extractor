@@ -77,6 +77,16 @@ def get_initial_dataframe(_workbook, sheet_name, start_row, end_row, start_col, 
 
     return df_result
 
+# --- Callback function for data_editor changes ---
+def on_data_editor_change():
+    # This callback updates a dedicated session state variable for selected rows
+    # and forces a rerun so the UI can react to the selection immediately.
+    if 'main_data_editor_manual' in st.session_state:
+        st.session_state.selected_rows_for_combine = st.session_state.main_data_editor_manual.get('selected_rows', [])
+    else:
+        st.session_state.selected_rows_for_combine = []
+    st.rerun()
+
 # --- Main App Logic ---
 with st.sidebar:
     st.header("Upload Excel File")
@@ -138,6 +148,7 @@ if uploaded_file is not None:
             st.session_state.current_df_manual = df_initial.copy()
             st.session_state.history_manual = [] # Clear history on new selection
             st.session_state.last_processed_file_id_manual = current_data_selection_id
+            st.session_state.selected_rows_for_combine = [] # Initialize selected rows
             if not df_initial.empty: # Only show info if actual data is loaded
                 st.info("Table initialized from specified range.")
         elif st.session_state.current_df_manual.empty and not df_initial.empty:
@@ -145,6 +156,7 @@ if uploaded_file is not None:
             st.session_state.current_df_manual = df_initial.copy()
             st.session_state.history_manual = []
             st.session_state.last_processed_file_id_manual = current_data_selection_id
+            st.session_state.selected_rows_for_combine = [] # Initialize selected rows
             st.info("Re-initializing table from file as previous data was empty.")
 
         st.markdown("---")
@@ -170,7 +182,8 @@ if uploaded_file is not None:
                         format="%d"
                     )
                 },
-                key="main_data_editor_manual" # Unique key for the data editor
+                key="main_data_editor_manual", # Unique key for the data editor
+                on_change=on_data_editor_change # ADD THIS CALLBACK
             )
 
             # Check if edited_df is different from current_df
@@ -203,8 +216,8 @@ if uploaded_file is not None:
             st.subheader("🔗 Combine Selected Rows Manually")
             st.info("Select rows from the table above using the checkboxes on the left, then click 'Combine Selected Rows'. Numeric columns will be summed, text columns joined by ' / '.")
 
-            # GET SELECTED ROWS DIRECTLY FROM st.session_state AFTER data_editor HAS RUN
-            selected_rows_indices = st.session_state.main_data_editor_manual.get('selected_rows', [])
+            # GET SELECTED ROWS FROM THE DEDICATED SESSION STATE VARIABLE, UPDATED BY CALLBACK
+            selected_rows_indices = st.session_state.get('selected_rows_for_combine', [])
             
             # --- Always show the combine button, but disable it if not enough rows are selected ---
             new_row_name = st.text_input("Enter a name for the combined row (e.g., 'Combined Item')", "Combined Row", key="combined_row_name_manual")
@@ -251,6 +264,8 @@ if uploaded_file is not None:
                         st.session_state.current_df_manual['Order'] = range(1, len(st.session_state.current_df_manual) + 1)
 
                     st.success(f"Selected rows combined into '{new_row_name}'.")
+                    # Clear the selected rows state after combining
+                    st.session_state.selected_rows_for_combine = [] 
                     st.rerun()
                 else: # This case should ideally not be hit if the button is disabled correctly
                     st.warning("Please select at least two rows to combine.")
