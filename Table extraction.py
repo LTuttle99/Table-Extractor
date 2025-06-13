@@ -206,8 +206,7 @@ if uploaded_file is not None:
 
             # Get selected row indices from the data editor
             # Safely get 'selected_rows' to prevent KeyError if no rows are selected initially
-            selected_rows_from_editor = st.session_state.main_data_editor_manual.get('selected_rows', [])
-            selected_rows_indices = edited_df_manual.index[edited_df_manual.index.isin(selected_rows_from_editor)].tolist()
+            selected_rows_indices = st.session_state.main_data_editor_manual.get('selected_rows', [])
 
             if len(selected_rows_indices) >= 2:
                 new_row_name = st.text_input("Enter a name for the combined row (e.g., 'Combined Item')", "Combined Row", key="combined_row_name_manual")
@@ -215,6 +214,7 @@ if uploaded_file is not None:
                     st.session_state.history_manual.append(st.session_state.current_df_manual.copy()) # Save current state
 
                     combined_row_data = {}
+                    # Use .loc with the directly obtained indices from selected_rows_indices
                     selected_df_for_combine = st.session_state.current_df_manual.loc[selected_rows_indices]
 
                     for col_idx, col in enumerate(st.session_state.current_df_manual.columns):
