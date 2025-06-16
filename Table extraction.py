@@ -80,11 +80,29 @@ def get_initial_dataframe(_workbook, sheet_name, start_row, end_row, start_col, 
 # --- Main App Logic ---
 with st.sidebar:
     st.header("Upload Excel File")
-    uploaded_file = st.file_uploader("Upload your Excel file", type=["xlsx", "xls"])
+    uploaded_file = st.file_uploader("Upload your Excel file", type=["xlsx", "xls"], key="file_uploader_manual")
     st.markdown("---")
 
 if uploaded_file is not None:
     try:
+        # Get a unique identifier for the current file to manage session state
+        current_file_id = uploaded_file.file_id
+
+        # Initialize session state if not already done
+        if "last_file_id" not in st.session_state:
+            st.session_state.last_file_id = None
+
+        # Detect if a new file has been uploaded
+        if st.session_state.last_file_id != current_file_id:
+            # Clear caches explicitly
+            load_workbook_from_bytesio.clear()
+            get_initial_dataframe.clear()
+            # Reset session state
+            st.session_state.current_df_manual = None
+            st.session_state.history_manual = []
+            st.session_state.last_processed_file_id_manual = None
+            st.session_state.last_file_id = current_file_id
+
         with st.spinner("Loading Excel file..."):
             wb = load_workbook_from_bytesio(uploaded_file)
         
@@ -124,7 +142,7 @@ if uploaded_file is not None:
 
         # Session State Management for current_df and history
         current_data_selection_id = (
-            f"{uploaded_file.file_id}-"
+            f"{current_file_id}-"
             f"{selected_sheet}-"
             f"{start_row}-"
             f"{end_row}-"
@@ -236,7 +254,6 @@ if uploaded_file is not None:
                 selected_rows_indices = []
                 st.warning("No rows available to select for combination.")
 
-
             new_row_name = st.text_input("Enter a name for the combined row (e.g., 'Combined Item')", "Combined Row", key="combined_row_name_manual")
             
             # The button is always enabled; validation happens after click
@@ -268,7 +285,6 @@ if uploaded_file is not None:
                         else: # If 'Order' is the only column, or it's not present and we need to assign a name
                             combined_row_data[st.session_state.current_df_manual.columns[0]] = new_row_name
 
-
                     combined_df_new = pd.DataFrame([combined_row_data], columns=st.session_state.current_df_manual.columns)
                     
                     remaining_df = st.session_state.current_df_manual.drop(index=selected_rows_indices).reset_index(drop=True)
@@ -282,7 +298,6 @@ if uploaded_file is not None:
                     st.rerun() # Rerun to update the display and multiselect options
                 else:
                     st.warning("Please select at least two rows to combine.")
-
 
             # --- Undo functionality ---
             st.markdown("---")
